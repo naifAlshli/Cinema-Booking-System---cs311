@@ -92,3 +92,89 @@ Relationship: Each screening room belongs to one theater, while one theater can 
 
 Relationship Type: Many-to-One (N:1) from Screens to Theaters.
 
+### 5. Seats Table
+
+Description: This table stores information about the seats available in each cinema screening room, including seat numbers, rows, and types.
+
+| Attribute | Data Type | Constraints | Description |
+|---|---|---|---|
+| seat_id | INT | PRIMARY KEY | Unique identifier for each seat |
+| screen_id | INT | FOREIGN KEY, NOT NULL | References the Screens table |
+| row_label | VARCHAR(5) | NOT NULL | Row label, such as A, B, or C |
+| seat_number | INT | NOT NULL | Seat number within the row |
+| seat_type | VARCHAR(30) | NOT NULL | Seat type, such as Standard or VIP |
+| is_accessible | BOOLEAN | NOT NULL | Indicates whether the seat is accessible |
+| is_active | BOOLEAN | NOT NULL | Indicates whether the seat is active |
+| created_at | DATETIME | NOT NULL | Date and time the seat was added |
+
+Primary Key: seat_id
+
+Foreign Key: screen_id references Screens(screen_id).
+
+Unique Constraint: (screen_id, row_label, seat_number).
+
+Relationship: Each seat belongs to one screening room, while one screening room can contain multiple seats.
+
+Relationship Type: Many-to-One (N:1) from Seats to Screens.
+
+Note: Seat availability depends on the selected showtime and will be determined using ticket and booking records.
+
+### 6. Showtimes Table
+
+Description: This table stores scheduled movie screenings, including the movie, screening room, date, time, and ticket price.
+
+| Attribute | Data Type | Constraints | Description |
+|---|---|---|---|
+| showtime_id | INT | PRIMARY KEY | Unique identifier for each showtime |
+| movie_id | INT | FOREIGN KEY, NOT NULL | References Movies(movie_id) |
+| screen_id | INT | FOREIGN KEY, NOT NULL | References Screens(screen_id) |
+| start_time | DATETIME | NOT NULL | Date and time the movie starts |
+| end_time | DATETIME | NOT NULL | Date and time the movie ends |
+| base_price | DECIMAL(8,2) | NOT NULL | Base ticket price |
+| language | VARCHAR(50) | NOT NULL | Language used in this screening |
+| show_status | VARCHAR(20) | NOT NULL | Status such as Scheduled or Canceled |
+
+Primary Key: showtime_id
+
+Foreign Keys:
+- movie_id references Movies(movie_id).
+- screen_id references Screens(screen_id).
+
+Relationships:
+- One movie can have multiple showtimes.
+- One screening room can host multiple showtimes.
+
+Relationship Type: One-to-Many (1:N) from Movies to Showtimes and from Screens to Showtimes.
+
+Business Rules:
+- end_time must be later than start_time.
+- A screening room must not have overlapping showtimes.
+- The base price must not be negative.
+
+  ### 7. Customers Table
+
+Description: This table stores information about customers who register and book cinema tickets, including their names and contact details.
+
+| Attribute | Data Type | Constraints | Description |
+|---|---|---|---|
+| customer_id | INT | PRIMARY KEY | Unique identifier for each customer |
+| first_name | VARCHAR(50) | NOT NULL | Customer's first name |
+| last_name | VARCHAR(50) | NOT NULL | Customer's last name |
+| email | VARCHAR(100) | NOT NULL, UNIQUE | Customer's email address |
+| phone_number | VARCHAR(20) | NULL | Customer's contact number |
+| registration_date | DATETIME | NOT NULL | Date and time the customer registered |
+| account_status | VARCHAR(20) | NOT NULL | Status such as Active or Inactive |
+| date_of_birth | DATE | NULL | Customer's date of birth |
+
+Primary Key: customer_id
+
+Unique Constraint: email must be unique for each customer.
+
+Relationship: One customer can make multiple bookings, while each booking belongs to one customer.
+
+Relationship Type: One-to-Many (1:N) from Customers to Bookings.
+
+Business Rules:
+- Each customer must have a unique email address.
+- Customer first name and last name cannot be empty.
+- A customer can have multiple bookings.
