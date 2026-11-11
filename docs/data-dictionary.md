@@ -178,3 +178,121 @@ Business Rules:
 - Each customer must have a unique email address.
 - Customer first name and last name cannot be empty.
 - A customer can have multiple bookings.
+
+  ### 8. Bookings Table
+
+Description: This table stores customer booking information, including the selected showtime, booking date, total amount, and booking status.
+
+| Attribute | Data Type | Constraints | Description |
+|---|---|---|---|
+| booking_id | INT | PRIMARY KEY | Unique identifier for each booking |
+| customer_id | INT | FOREIGN KEY, NOT NULL | References Customers(customer_id) |
+| showtime_id | INT | FOREIGN KEY, NOT NULL | References Showtimes(showtime_id) |
+| booking_reference | VARCHAR(30) | NOT NULL, UNIQUE | Unique booking reference number |
+| booking_date | DATETIME | NOT NULL | Date and time the booking was created |
+| booking_status | VARCHAR(20) | NOT NULL | Status such as Pending, Confirmed, or Canceled |
+| total_amount | DECIMAL(10,2) | NOT NULL | Total booking amount |
+| expires_at | DATETIME | NULL | Expiration time for an unpaid reservation |
+
+Primary Key: booking_id
+
+Foreign Keys:
+- customer_id references Customers(customer_id).
+- showtime_id references Showtimes(showtime_id).
+
+Unique Constraint: booking_reference must be unique.
+
+Relationships:
+- One customer can make multiple bookings.
+- One showtime can have multiple bookings.
+- One booking can contain multiple tickets.
+- One booking can have multiple payment attempts.
+
+Relationship Types:
+- Customers to Bookings: One-to-Many (1:N).
+- Showtimes to Bookings: One-to-Many (1:N).
+- Bookings to Tickets: One-to-Many (1:N).
+- Bookings to Payments: One-to-Many (1:N).
+
+Business Rules:
+- Each booking must belong to one customer.
+- Each booking must be associated with one showtime.
+- The total amount cannot be negative.
+- A canceled booking must not have active tickets.
+- Seats must not be booked twice for the same showtime.
+
+### 9. Tickets Table
+
+Description: This table stores cinema tickets associated with customer bookings, including seat assignments, ticket prices, and ticket statuses.
+
+| Attribute | Data Type | Constraints | Description |
+|---|---|---|---|
+| ticket_id | INT | PRIMARY KEY | Unique identifier for each ticket |
+| booking_id | INT | FOREIGN KEY, NOT NULL | References Bookings(booking_id) |
+| seat_id | INT | FOREIGN KEY, NOT NULL | References Seats(seat_id) |
+| ticket_code | VARCHAR(50) | NOT NULL, UNIQUE | Unique ticket verification code |
+| ticket_price | DECIMAL(8,2) | NOT NULL | Price of the ticket |
+| ticket_status | VARCHAR(20) | NOT NULL | Status such as Valid, Used, or Canceled |
+| issued_at | DATETIME | NOT NULL | Date and time the ticket was issued |
+| checked_in_at | DATETIME | NULL | Date and time the ticket was used |
+
+Primary Key: ticket_id
+
+Foreign Keys:
+- booking_id references Bookings(booking_id).
+- seat_id references Seats(seat_id).
+
+Unique Constraint: ticket_code must be unique.
+
+Relationships:
+- One booking can contain multiple tickets.
+- Each ticket belongs to one booking.
+- Each ticket is assigned to one seat.
+- One seat can be associated with multiple tickets for different showtimes.
+
+Relationship Types:
+- Bookings to Tickets: One-to-Many (1:N).
+- Seats to Tickets: One-to-Many (1:N).
+
+Business Rules:
+- Every ticket must belong to a valid booking.
+- Each ticket must have a unique verification code.
+- The ticket price cannot be negative.
+- The assigned seat must belong to the screening room of the booked showtime.
+- A seat must not have more than one active ticket for the same showtime.
+- Canceled tickets must not be accepted for entry.
+
+Note: Preventing duplicate active tickets for the same seat and showtime requires validation during SQL implementation.
+
+### 10. Payments Table
+
+Description: This table stores payment transactions associated with cinema bookings, including payment amounts, methods, statuses, and transaction details.
+
+| Attribute | Data Type | Constraints | Description |
+|---|---|---|---|
+| payment_id | INT | PRIMARY KEY | Unique identifier for each payment |
+| booking_id | INT | FOREIGN KEY, NOT NULL | References Bookings(booking_id) |
+| amount | DECIMAL(10,2) | NOT NULL | Payment amount |
+| payment_method | VARCHAR(30) | NOT NULL | Payment method, such as Card or Cash |
+| payment_status | VARCHAR(20) | NOT NULL | Status such as Pending, Completed, Failed, or Refunded |
+| transaction_reference | VARCHAR(100) | UNIQUE, NULL | Unique transaction reference if available |
+| attempted_at | DATETIME | NOT NULL | Date and time of the payment attempt |
+| refunded_at | DATETIME | NULL | Date and time of refund, if applicable |
+
+Primary Key: payment_id
+
+Foreign Key: booking_id references Bookings(booking_id).
+
+Unique Constraint: transaction_reference must be unique when provided.
+
+Relationship: Each payment belongs to one booking, while one booking can have multiple payment attempts.
+
+Relationship Type: Many-to-One (N:1) from Payments to Bookings.
+
+Business Rules:
+- Every payment must belong to a valid booking.
+- Payment amounts cannot be negative.
+- Each transaction reference must be unique when provided.
+- A failed payment must not confirm a booking.
+- A refunded payment should record its refund date.
+- A booking may have multiple payment attempts.
