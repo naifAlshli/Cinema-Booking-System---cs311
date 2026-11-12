@@ -89,3 +89,35 @@ These tables will be connected using primary keys and foreign keys to maintain r
 The requirements analysis provides an initial foundation for designing the Cinema Ticket Booking System database.
 
 The proposed database structure will support movie management, showtime scheduling, seat reservations, customer bookings, ticket records, and payment tracking.
+
+### 9. Booking Integrity and Seat Availability Rules
+
+The Cinema Ticket Booking System must ensure accurate seat reservations, prevent duplicate bookings, and maintain data consistency.
+
+Business Rules:
+
+1. Each booking must be associated with one customer and one showtime.
+
+2. Each ticket must be linked to a valid booking and a specific seat.
+
+3. The selected seat must belong to the same screening room assigned to the booked showtime.
+
+4. A seat cannot have more than one active reservation for the same showtime.
+
+5. The same seat can be booked for different showtimes.
+
+6. When a booking is canceled, its tickets must become invalid and the reserved seats must be released.
+
+7. If payment fails, the booking must not be confirmed. The customer may retry payment while the reservation remains valid.
+
+8. If an unpaid reservation expires, its seats must become available for other customers.
+
+9. A booking should be confirmed only after successful payment.
+
+10. The database implementation must handle simultaneous booking attempts safely to prevent double booking.
+
+Implementation Note:
+
+The MySQL implementation must enforce these rules using appropriate constraints, transactions, and application or database validation.
+
+Foreign keys alone cannot prevent duplicate active reservations for the same seat and showtime.
