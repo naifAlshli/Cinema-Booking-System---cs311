@@ -1,0 +1,412 @@
+USE CinemaTicketBooking;
+
+CREATE TABLE Bookings (
+    booking_id INT AUTO_INCREMENT PRIMARY KEY,
+    booking_reference VARCHAR(30) NOT NULL UNIQUE,
+    customer_id INT NOT NULL,
+    showtime_id INT NOT NULL,
+    booking_date DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    booking_status VARCHAR(20) NOT NULL DEFAULT 'Pending',
+    total_amount DECIMAL(10,2) NOT NULL,
+
+    CONSTRAINT fk_bookings_customer
+        FOREIGN KEY (customer_id)
+        REFERENCES Customers(customer_id),
+
+    CONSTRAINT fk_bookings_showtime
+        FOREIGN KEY (showtime_id)
+        REFERENCES Showtimes(showtime_id),
+
+    CONSTRAINT uq_booking_id_showtime
+        UNIQUE (booking_id, showtime_id),
+
+    CONSTRAINT chk_booking_amount
+        CHECK (total_amount >= 0),
+
+    CONSTRAINT chk_booking_status
+        CHECK (booking_status IN
+            ('Pending', 'Confirmed', 'Cancelled', 'Expired'))
+);
+
+
+CREATE TABLE Tickets (
+    ticket_id INT AUTO_INCREMENT PRIMARY KEY,
+    booking_id INT NOT NULL,
+    showtime_id INT NOT NULL,
+    seat_id INT NOT NULL,
+    ticket_price DECIMAL(10,2) NOT NULL,
+    ticket_status VARCHAR(20) NOT NULL DEFAULT 'Active',
+    issued_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    -- Link ticket to the correct booking and showtime
+    CONSTRAINT fk_tickets_booking_showtime
+        FOREIGN KEY (booking_id, showtime_id)
+        REFERENCES Bookings(booking_id, showtime_id),
+
+    CONSTRAINT fk_tickets_seat
+        FOREIGN KEY (seat_id)
+        REFERENCES Seats(seat_id),
+
+    CONSTRAINT chk_ticket_price
+        CHECK (ticket_price >= 0),
+
+    CONSTRAINT chk_ticket_status
+        CHECK (ticket_status IN
+            ('Active', 'Cancelled', 'Used')),
+
+    -- These columns have values only for active tickets
+    active_showtime_id INT
+        GENERATED ALWAYS AS (
+            CASE
+                WHEN ticket_status = 'Active'
+                THEN showtime_id
+                ELSE NULL
+            END
+        ) STORED,
+
+    active_seat_id INT
+        GENERATED ALWAYS AS (
+            CASE
+                WHEN ticket_status = 'Active'
+                THEN seat_id
+                ELSE NULL
+            END
+        ) STORED,
+
+    -- Prevent booking the same seat twice in one showtime
+    CONSTRAINT uq_active_seat_per_showtime
+        UNIQUE (active_showtime_id, active_seat_id)
+);
+
+
+CREATE TABLE Payments (
+    payment_id INT AUTO_INCREMENT PRIMARY KEY,
+    booking_id INT NOT NULL,
+    payment_reference VARCHAR(40) NOT NULL UNIQUE,
+    amount DECIMAL(10,2) NOT NULL,
+    payment_method VARCHAR(30) NOT NULL,
+    payment_status VARCHAR(25) NOT NULL,
+    payment_date DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    refund_amount DECIMAL(10,2) NOT NULL DEFAULT 0.00,
+    refunded_at DATETIME NULL,
+
+    CONSTRAINT fk_payments_booking
+        FOREIGN KEY (booking_id)
+        REFERENCES Bookings(booking_id),
+
+    CONSTRAINT chk_payment_amount
+        CHECK (amount >= 0),
+
+    CONSTRAINT chk_refund_amount
+        CHECK (refund_amount >= 0 AND refund_amount <= amount),
+
+    CONSTRAINT chk_payment_method
+        CHECK (payment_method IN
+            ('Card', 'Mada', 'ApplePay', 'Cash')),
+
+    CONSTRAINT chk_payment_status
+        CHECK (payment_status IN
+            ('Pending', 'Successful', 'Failed',
+             'Refunded', 'Partially_Refunded'))
+);
+
+
+
+-- Your current sample data has seats only for screen 1.
+-- This adds one seat to every screen that has no seats.
+
+INSERT INTO Seats (
+    screen_id,
+    row_label,
+    seat_number,
+    seat_type,
+    is_accessible,
+    is_active,
+    created_at
+)
+SELECT
+    sc.screen_id,
+    'A',
+    1,
+    'Regular',
+    FALSE,
+    TRUE,
+    NOW()
+FROM Screens sc
+WHERE NOT EXISTS (
+    SELECT 1
+    FROM Seats se
+    WHERE se.screen_id = sc.screen_id
+);
+
+
+
+DELIMITER $$
+
+CREATE TRIGGER trg_check_ticket_seat_insert
+BEFORE INSERT ON Tickets
+FOR EACH ROW
+BEGIN
+    DECLARE v_showtime_screen INT;
+    DECLARE v_seat_screen INT;
+
+    SELECT screen_id
+    INTO v_showtime_screen
+    FROM Showtimes
+    WHERE showtime_id = NEW.showtime_id;
+
+    SELECT screen_id
+    INTO v_seat_screen
+    FROM Seats
+    WHERE seat_id = NEW.seat_id;
+
+    IF v_showtime_screen <> v_seat_screen THEN
+        SIGNAL SQLSTATE '45000'
+        SET MESSAGE_TEXT =
+            'The selected seat does not belong to the showtime screen';
+    END IF;
+END$$
+
+
+CREATE TRIGGER trg_check_ticket_seat_update
+BEFORE UPDATE ON Tickets
+FOR EACH ROW
+BEGIN
+    DECLARE v_showtime_screen INT;
+    DECLARE v_seat_screen INT;
+
+    SELECT screen_id
+    INTO v_showtime_screen
+    FROM Showtimes
+    WHERE showtime_id = NEW.showtime_id;
+
+    SELECT screen_id
+    INTO v_seat_screen
+    FROM Seats
+    WHERE seat_id = NEW.seat_id;
+
+    IF v_showtime_screen <> v_seat_screen THEN
+        SIGNAL SQLSTATE '45000'
+        SET MESSAGE_TEXT =
+            'The selected seat does not belong to the showtime screen';
+    END IF;
+END$$
+
+
+
+CREATE TRIGGER trg_payment_success_insert
+AFTER INSERT ON Payments
+FOR EACH ROW
+BEGIN
+    IF NEW.payment_status = 'Successful' THEN
+        UPDATE Bookings
+        SET booking_status = 'Confirmed'
+        WHERE booking_id = NEW.booking_id
+          AND booking_status = 'Pending';
+    END IF;
+END$$
+
+
+-- Also handle payment status changes
+
+CREATE TRIGGER trg_payment_success_update
+AFTER UPDATE ON Payments
+FOR EACH ROW
+BEGIN
+    IF NEW.payment_status = 'Successful' THEN
+        UPDATE Bookings
+        SET booking_status = 'Confirmed'
+        WHERE booking_id = NEW.booking_id
+          AND booking_status = 'Pending';
+    END IF;
+END$$
+
+
+CREATE TRIGGER trg_booking_cancel_tickets
+AFTER UPDATE ON Bookings
+FOR EACH ROW
+BEGIN
+    IF NEW.booking_status IN ('Cancelled', 'Expired')
+       AND OLD.booking_status <> NEW.booking_status THEN
+
+        UPDATE Tickets
+        SET ticket_status = 'Cancelled'
+        WHERE booking_id = NEW.booking_id
+          AND ticket_status = 'Active';
+
+    END IF;
+END$$
+
+DELIMITER ;
+
+
+INSERT INTO Bookings (
+    booking_reference,
+    customer_id,
+    showtime_id,
+    booking_status,
+    total_amount
+)
+SELECT
+    CONCAT('BK-', LPAD(c.customer_id, 4, '0')),
+    c.customer_id,
+    s.showtime_id,
+    'Pending',
+    s.base_price
+FROM Customers c
+JOIN Showtimes s
+    ON s.showtime_id = c.customer_id
+WHERE c.customer_id BETWEEN 1 AND 10
+ORDER BY c.customer_id;
+
+
+INSERT INTO Tickets (
+    booking_id,
+    showtime_id,
+    seat_id,
+    ticket_price,
+    ticket_status
+)
+SELECT
+    b.booking_id,
+    b.showtime_id,
+    se.seat_id,
+    s.base_price,
+    'Active'
+FROM Bookings b
+JOIN Showtimes s
+    ON s.showtime_id = b.showtime_id
+JOIN Seats se
+    ON se.screen_id = s.screen_id
+   AND se.is_active = TRUE
+   AND se.seat_id = (
+       SELECT MIN(se2.seat_id)
+       FROM Seats se2
+       WHERE se2.screen_id = s.screen_id
+         AND se2.is_active = TRUE
+   )
+WHERE b.booking_status = 'Pending'
+ORDER BY b.booking_id
+LIMIT 10;
+
+
+INSERT INTO Payments (
+    booking_id,
+    payment_reference,
+    amount,
+    payment_method,
+    payment_status
+)
+SELECT
+    b.booking_id,
+    CONCAT('PAY-', LPAD(b.booking_id, 4, '0')),
+    b.total_amount,
+
+    CASE
+        WHEN b.booking_id % 4 = 0 THEN 'ApplePay'
+        WHEN b.booking_id % 4 = 1 THEN 'Mada'
+        WHEN b.booking_id % 4 = 2 THEN 'Card'
+        ELSE 'Cash'
+    END,
+
+    'Successful'
+
+FROM Bookings b
+ORDER BY b.booking_id
+LIMIT 10;
+
+
+SELECT * FROM Bookings;
+
+SELECT * FROM Tickets;
+
+SELECT * FROM Payments;
+
+
+SELECT
+    b.booking_id,
+    b.booking_reference,
+    c.first_name,
+    c.last_name,
+    s.showtime_id,
+    t.ticket_id,
+    t.seat_id,
+    t.ticket_price,
+    b.booking_status,
+    p.payment_method,
+    p.payment_status
+
+FROM Bookings b
+
+INNER JOIN Customers c
+    ON b.customer_id = c.customer_id
+
+INNER JOIN Showtimes s
+    ON b.showtime_id = s.showtime_id
+
+INNER JOIN Tickets t
+    ON b.booking_id = t.booking_id
+
+LEFT JOIN Payments p
+    ON b.booking_id = p.booking_id
+
+ORDER BY b.booking_id;
+
+
+SELECT
+    booking_id,
+    booking_status
+FROM Bookings
+ORDER BY booking_id;
+
+
+-- Example test:
+-- UPDATE Bookings
+-- SET booking_status = 'Cancelled'
+-- WHERE booking_id = 1;
+
+-- Check the ticket:
+-- SELECT * FROM Tickets WHERE booking_id = 1;
+
+SELECT
+    showtime_id,
+    seat_id,
+    COUNT(*) AS active_ticket_count
+FROM Tickets
+WHERE ticket_status = 'Active'
+GROUP BY showtime_id, seat_id
+HAVING COUNT(*) > 1;
+
+
+SELECT
+    customer_id,
+    COUNT(*) AS total_bookings
+FROM Bookings
+GROUP BY customer_id
+ORDER BY total_bookings DESC;
+
+
+
+SELECT
+    SUM(amount) AS total_successful_payments
+FROM Payments
+WHERE payment_status = 'Successful';
+
+SELECT
+    booking_id,
+    booking_reference,
+    booking_status,
+    total_amount
+FROM Bookings
+WHERE booking_status IN ('Cancelled', 'Expired');
+
+SELECT
+    payment_id,
+    booking_id,
+    payment_reference,
+    amount,
+    refund_amount,
+    payment_status,
+    refunded_at
+FROM Payments
+WHERE payment_status IN ('Refunded', 'Partially_Refunded');
